@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spectrum Analytics Dashboard</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="header-top">
+                <div class="logo">
+                    <svg width="32" height="32" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="50" cy="50" r="45" stroke="#f6821f" stroke-width="6" fill="none"/>
+                        <path d="M30 50 L45 65 L70 35" stroke="#f6821f" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <h1>Spectrum Analytics</h1>
+                </div>
+                <div class="header-actions">
+                    <button id="refreshBtn" class="btn btn-secondary" disabled>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 4v6h-6M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+            <!-- Controls Bar (visible when connected) -->
+            <div id="controlsBar" class="controls-bar hidden">
+                <div class="time-selector">
+                    <label for="timeRange">Time Range:</label>
+                    <select id="timeRange">
+                        <option value="1h" selected>Last 1 Hour</option>
+                        <option value="6h">Last 6 Hours</option>
+                        <option value="24h">Last 24 Hours</option>
+                        <option value="7d">Last 7 Days</option>
+                        <option value="30d">Last 30 Days</option>
+                    </select>
+                </div>
+                <div class="app-filter">
+                    <label for="appFilter">Application:</label>
+                    <select id="appFilter">
+                        <option value="">All Applications</option>
+                    </select>
+                </div>
+                <div class="export-controls">
+                    <button id="exportCsvBtn" class="btn btn-secondary btn-small" title="Export all metrics to CSV">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        CSV
+                    </button>
+                    <button id="exportJsonBtn" class="btn btn-secondary btn-small" title="Export all metrics to JSON">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        JSON
+                    </button>
+                </div>
+                <button id="disconnectBtn" class="btn btn-secondary btn-small">
+                    Disconnect
+                </button>
+            </div>
+        </header>
+
+        <main class="main">
+            <!-- Configuration Panel -->
+            <section id="configSection" class="config-section">
+                <div class="config-card">
+                    <h2>Connect to Cloudflare</h2>
+                    <p class="config-description">
+                        Enter your Cloudflare API token and Zone ID to view Spectrum analytics.
+                    </p>
+                    <div class="permission-info">
+                        <div class="permission-badge">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                            </svg>
+                            <span>Required: <code>Analytics Read</code></span>
+                        </div>
+                        <p class="permission-details">
+                            Create a read-only API token with <strong>Analytics Read</strong> permission to access Spectrum analytics data.
+                        </p>
+                        <div class="permission-badge permission-optional">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4"/>
+                                <path d="M12 8h.01"/>
+                            </svg>
+                            <span>Optional: <code>Zone Settings Read</code></span>
+                        </div>
+                        <p class="permission-details">
+                            Add <strong>Zone Settings Read</strong> permission to see Spectrum application details (hostnames, protocols, origins, TLS settings).
+                            <a href="https://developers.cloudflare.com/api/resources/spectrum/subresources/apps/methods/list/" target="_blank" rel="noopener noreferrer">
+                                Spectrum Apps API
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                    <polyline points="15 3 21 3 21 9"/>
+                                    <line x1="10" y1="14" x2="21" y2="3"/>
+                                </svg>
+                            </a>
+                        </p>
+                    </div>
+                    <form id="configForm" class="config-form">
+                        <div class="form-group">
+                            <label for="apiToken">API Token (Read-Only)</label>
+                            <input 
+                                type="password" 
+                                id="apiToken" 
+                                name="apiToken" 
+                                placeholder="Enter your Cloudflare API token"
+                                required
+                                autocomplete="off"
+                            >
+                            <small>
+                                Token is stored only in your browser session (cleared when tab closes).
+                                <a href="https://developers.cloudflare.com/fundamentals/api/get-started/create-token/" target="_blank" rel="noopener noreferrer">
+                                    Create an API token
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                        <polyline points="15 3 21 3 21 9"/>
+                                        <line x1="10" y1="14" x2="21" y2="3"/>
+                                    </svg>
+                                </a>
+                            </small>
+                        </div>
+                        <div class="form-group">
+                            <label for="zoneId">Zone ID</label>
+                            <input 
+                                type="text" 
+                                id="zoneId" 
+                                name="zoneId" 
+                                placeholder="Enter your Zone ID"
+                                required
+                                pattern="[a-f0-9]{32}"
+                                title="Zone ID should be a 32-character hexadecimal string"
+                            >
+                            <small>
+                                Found in your Cloudflare dashboard under the zone's Overview page.
+                                <a href="https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/" target="_blank" rel="noopener noreferrer">
+                                    How to find your Zone ID
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                        <polyline points="15 3 21 3 21 9"/>
+                                        <line x1="10" y1="14" x2="21" y2="3"/>
+                                    </svg>
+                                </a>
+                            </small>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                                    <polyline points="10 17 15 12 10 7"/>
+                                    <line x1="15" y1="12" x2="3" y2="12"/>
+                                </svg>
+                                Connect
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Dashboard Section (hidden until connected) -->
+            <section id="dashboardSection" class="dashboard-section hidden">
+                <!-- Summary Stats - Primary Metrics -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon connections">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                <circle cx="9" cy="7" r="4"/>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Total Connections</span>
+                            <span class="stat-value" id="totalConnections">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon ingress">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="19" x2="12" y2="5"/>
+                                <polyline points="5 12 12 5 19 12"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Ingress Bandwidth</span>
+                            <span class="stat-value" id="ingressBandwidth">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon egress">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <polyline points="19 12 12 19 5 12"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Egress Bandwidth</span>
+                            <span class="stat-value" id="egressBandwidth">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon duration">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <polyline points="12 6 12 12 16 14"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Avg Duration</span>
+                            <span class="stat-value" id="avgDuration">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Argo Smart Routing Performance Section -->
+                <div class="section-header">
+                    <h3>Argo Smart Routing Performance</h3>
+                    <span class="section-subtitle">
+                        Network optimization metrics powered by 
+                        <a href="https://developers.cloudflare.com/argo-smart-routing/" target="_blank" rel="noopener noreferrer">
+                            Argo Smart Routing
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                <polyline points="15 3 21 3 21 9"/>
+                                <line x1="10" y1="14" x2="21" y2="3"/>
+                            </svg>
+                        </a>
+                    </span>
+                </div>
+                <div class="argo-performance-card">
+                    <div class="argo-grid">
+                        <div class="argo-metric">
+                            <div class="argo-icon argo-ttfb">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                                </svg>
+                            </div>
+                            <div class="argo-content">
+                                <span class="argo-label">Avg Response Time</span>
+                                <span class="argo-value" id="argoAvgResponse">--</span>
+                                <span class="argo-hint">Lower is better</span>
+                            </div>
+                        </div>
+                        <div class="argo-metric">
+                            <div class="argo-icon argo-throughput">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                                </svg>
+                            </div>
+                            <div class="argo-content">
+                                <span class="argo-label">Throughput</span>
+                                <span class="argo-value" id="argoThroughput">--</span>
+                                <span class="argo-hint">Total bytes/period</span>
+                            </div>
+                        </div>
+                        <div class="argo-metric">
+                            <div class="argo-icon argo-success">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                    <polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                            </div>
+                            <div class="argo-content">
+                                <span class="argo-label">Success Rate</span>
+                                <span class="argo-value" id="argoSuccessRate">--</span>
+                                <span class="argo-hint">Connections without errors</span>
+                            </div>
+                        </div>
+                        <div class="argo-metric">
+                            <div class="argo-icon argo-latency">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <polyline points="12 6 12 12 16 14"/>
+                                </svg>
+                            </div>
+                            <div class="argo-content">
+                                <span class="argo-label">P99 Latency</span>
+                                <span class="argo-value" id="argoP99Latency">--</span>
+                                <span class="argo-hint">99th percentile</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="argo-info">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 16v-4"/>
+                            <path d="M12 8h.01"/>
+                        </svg>
+                        <span>Argo Smart Routing optimizes traffic routing for TCP and HTTPS Spectrum applications, reducing latency by dynamically choosing the fastest network path to your origin.</span>
+                    </div>
+                </div>
+
+                <!-- Duration Percentiles - Connection Performance -->
+                <div class="section-header">
+                    <h3>Connection Duration Percentiles</h3>
+                    <span class="section-subtitle">Latency distribution for connection performance analysis</span>
+                </div>
+                <div class="stats-grid stats-grid-3">
+                    <div class="stat-card stat-card-compact">
+                        <div class="stat-icon duration-median">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Median (P50)</span>
+                            <span class="stat-value stat-value-small" id="durationMedian">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-card-compact">
+                        <div class="stat-icon duration-p90">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">90th Percentile</span>
+                            <span class="stat-value stat-value-small" id="duration90th">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-card-compact">
+                        <div class="stat-icon duration-p99">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">99th Percentile</span>
+                            <span class="stat-value stat-value-small" id="duration99th">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>Connections Over Time</h3>
+                        <div class="chart-container">
+                            <canvas id="connectionsChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Bandwidth Over Time</h3>
+                        <div class="chart-container">
+                            <canvas id="bandwidthChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>Events by Type</h3>
+                        <p class="chart-description">Connection lifecycle events: connect, progress, disconnect, originError, clientFiltered</p>
+                        <div class="chart-container chart-container-small">
+                            <canvas id="eventsChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Traffic by Colo</h3>
+                        <p class="chart-description">Top 10 edge locations by connection count</p>
+                        <div class="chart-container chart-container-small">
+                            <canvas id="coloChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Additional Charts for TCP/HTTPS Visibility -->
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>Throughput Over Time</h3>
+                        <p class="chart-description">Combined ingress + egress throughput for TCP/HTTPS applications</p>
+                        <div class="chart-container">
+                            <canvas id="throughputChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Connection Health</h3>
+                        <p class="chart-description">Success vs error rates for origin connections</p>
+                        <div class="chart-container">
+                            <canvas id="healthChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>Duration Distribution</h3>
+                        <p class="chart-description">Connection duration percentiles over time (P50, P90, P99)</p>
+                        <div class="chart-container">
+                            <canvas id="durationChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Bytes Per Connection</h3>
+                        <p class="chart-description">Average data transferred per connection</p>
+                        <div class="chart-container">
+                            <canvas id="bytesPerConnChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Breakdown Cards -->
+                <div class="section-header">
+                    <h3>Event Type Breakdown</h3>
+                    <span class="section-subtitle">Connection lifecycle and error visibility</span>
+                </div>
+                <div class="event-cards">
+                    <div class="event-card event-connect">
+                        <div class="event-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M5 12h14M12 5l7 7-7 7"/>
+                            </svg>
+                        </div>
+                        <div class="event-content">
+                            <span class="event-label">Connect</span>
+                            <span class="event-value" id="eventConnect">--</span>
+                        </div>
+                    </div>
+                    <div class="event-card event-progress">
+                        <div class="event-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83"/>
+                            </svg>
+                        </div>
+                        <div class="event-content">
+                            <span class="event-label">Progress</span>
+                            <span class="event-value" id="eventProgress">--</span>
+                        </div>
+                    </div>
+                    <div class="event-card event-disconnect">
+                        <div class="event-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 6L6 18M6 6l12 12"/>
+                            </svg>
+                        </div>
+                        <div class="event-content">
+                            <span class="event-label">Disconnect</span>
+                            <span class="event-value" id="eventDisconnect">--</span>
+                        </div>
+                    </div>
+                    <div class="event-card event-origin-error">
+                        <div class="event-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                        </div>
+                        <div class="event-content">
+                            <span class="event-label">Origin Errors</span>
+                            <span class="event-value" id="eventOriginError">--</span>
+                        </div>
+                    </div>
+                    <div class="event-card event-client-filtered">
+                        <div class="event-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                            </svg>
+                        </div>
+                        <div class="event-content">
+                            <span class="event-label">Client Filtered</span>
+                            <span class="event-value" id="eventClientFiltered">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- IP Version Distribution -->
+                <div class="section-header">
+                    <h3>IP Version Distribution</h3>
+                    <span class="section-subtitle">IPv4 vs IPv6 traffic breakdown</span>
+                </div>
+                <div class="ip-version-bar">
+                    <div class="ip-bar-container">
+                        <div class="ip-bar ip-bar-v4" id="ipv4Bar" style="width: 50%"></div>
+                        <div class="ip-bar ip-bar-v6" id="ipv6Bar" style="width: 50%"></div>
+                    </div>
+                    <div class="ip-labels">
+                        <div class="ip-label">
+                            <span class="ip-dot ip-dot-v4"></span>
+                            <span>IPv4: <strong id="ipv4Count">--</strong></span>
+                        </div>
+                        <div class="ip-label">
+                            <span class="ip-dot ip-dot-v6"></span>
+                            <span>IPv6: <strong id="ipv6Count">--</strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current Connections Table -->
+                <div class="table-card">
+                    <h3>Current Connections by Application</h3>
+                    <div class="table-container">
+                        <table id="currentConnectionsTable">
+                            <thead>
+                                <tr>
+                                    <th>Application ID</th>
+                                    <th>Active Connections</th>
+                                    <th>Ingress (bytes/s)</th>
+                                    <th>Egress (bytes/s)</th>
+                                    <th>Avg Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td colspan="5" class="loading-cell">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Spectrum Events Log Section -->
+                <div class="section-header">
+                    <h3>Spectrum Events Breakdown</h3>
+                    <span class="section-subtitle">
+                        Event aggregation by type, application, and edge location from 
+                        <a href="https://developers.cloudflare.com/api/resources/spectrum/subresources/analytics/subresources/events/" target="_blank" rel="noopener noreferrer">
+                            Spectrum Analytics Events API
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                <polyline points="15 3 21 3 21 9"/>
+                                <line x1="10" y1="14" x2="21" y2="3"/>
+                            </svg>
+                        </a>
+                    </span>
+                </div>
+                <div class="table-card">
+                    <div class="table-container">
+                        <table id="eventsLogTable">
+                            <thead>
+                                <tr>
+                                    <th>Event Type</th>
+                                    <th>Application</th>
+                                    <th>Colo</th>
+                                    <th>Count</th>
+                                    <th>Bytes In</th>
+                                    <th>Bytes Out</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td colspan="6" class="loading-cell">Loading events...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Spectrum Applications Configuration (requires Zone Settings Read permission) -->
+                <div id="spectrumAppsSection" class="hidden">
+                    <div class="section-header">
+                        <h3>Spectrum Applications Configuration</h3>
+                        <span class="section-subtitle">
+                            Application details from 
+                            <a href="https://developers.cloudflare.com/api/resources/spectrum/subresources/apps/methods/list/" target="_blank" rel="noopener noreferrer">
+                                Spectrum Apps API
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                    <polyline points="15 3 21 3 21 9"/>
+                                    <line x1="10" y1="14" x2="21" y2="3"/>
+                                </svg>
+                            </a>
+                            <span class="permission-note">(Requires Zone Settings Read permission)</span>
+                        </span>
+                    </div>
+                    <div class="table-card">
+                        <div class="table-container">
+                            <table id="spectrumAppsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Hostname / DNS</th>
+                                        <th>Protocol</th>
+                                        <th>Origin</th>
+                                        <th>TLS</th>
+                                        <th>Argo</th>
+                                        <th>Edge IPs</th>
+                                        <th>IP Firewall</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="7" class="loading-cell">Loading applications...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Loading Overlay -->
+            <div id="loadingOverlay" class="loading-overlay hidden">
+                <div class="spinner"></div>
+                <span>Loading analytics...</span>
+            </div>
+
+            <!-- Error Toast -->
+            <div id="errorToast" class="toast toast-error hidden">
+                <span id="errorMessage"></span>
+                <button class="toast-close" onclick="hideError()">&times;</button>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <div class="footer-content">
+                <p class="footer-powered">
+                    Powered by 
+                    <a href="https://developers.cloudflare.com/workers/" target="_blank" rel="noopener noreferrer">Cloudflare Workers</a> &amp; 
+                    <a href="https://developers.cloudflare.com/spectrum/" target="_blank" rel="noopener noreferrer">Spectrum</a>
+                </p>
+                <p class="footer-links">
+                    <a href="https://developers.cloudflare.com/spectrum/reference/analytics/" target="_blank" rel="noopener noreferrer">Analytics Docs</a>
+                    <span class="separator">|</span>
+                    <a href="https://developers.cloudflare.com/api/resources/spectrum/" target="_blank" rel="noopener noreferrer">Spectrum API</a>
+                    <span class="separator">|</span>
+                    <a href="https://github.com/cloudflare" target="_blank" rel="noopener noreferrer">GitHub</a>
+                </p>
+                <p class="footer-disclaimer">
+                    <strong>Disclaimer:</strong> This dashboard is for educational and demonstration purposes only. 
+                    It is not an official Cloudflare product. Your API token is stored only in your browser's session storage 
+                    and is transmitted securely to the Cloudflare API. Never share your API tokens or use tokens with 
+                    write permissions in untrusted applications.
+                </p>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

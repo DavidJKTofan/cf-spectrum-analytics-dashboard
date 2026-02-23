@@ -1,0 +1,39 @@
+/**
+ * Spectrum Analytics Dashboard - Cloudflare Workers Configuration
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ * 
+ * Best Practices Applied:
+ * - Updated compatibility_date to current date for latest runtime features
+ * - Enabled nodejs_compat for Node.js built-in modules support
+ * - Enabled observability for production monitoring
+ * - Used Static Assets for SPA hosting
+ * 
+ * @see https://developers.cloudflare.com/workers/best-practices/workers-best-practices/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "cf-spectrum-analytics-dashboard",
+	"main": "src/index.ts",
+	// Best Practice: Keep compatibility date current
+	"compatibility_date": "2026-02-23",
+	"compatibility_flags": [
+		// Best Practice: Enable nodejs_compat for Node.js built-in modules
+		"nodejs_compat"
+	],
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS",
+		// SPA mode: serve index.html for non-matching routes (except API routes)
+		"not_found_handling": "single-page-application",
+		// Run Worker first for API routes
+		"run_worker_first": ["/api/*"]
+	},
+	// Best Practice: Enable observability for production monitoring
+	"observability": {
+		"enabled": true,
+		"logs": {
+			// Capture 100% of logs for this demo - reduce for high-traffic production
+			"head_sampling_rate": 1
+		}
+	}
+}
