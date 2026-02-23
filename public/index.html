@@ -420,11 +420,11 @@
 
                 <!-- Traffic & Performance Tab Content -->
                 <div class="tab-content" id="tab-traffic">
-                    <!-- Argo Smart Routing Performance Section -->
+                    <!-- Network Performance Section -->
                     <div class="section-header">
-                        <h3>Argo Smart Routing Performance</h3>
+                        <h3>Network Performance Metrics</h3>
                         <span class="section-subtitle">
-                            Network optimization metrics powered by 
+                            General Spectrum metrics - enable 
                             <a href="https://developers.cloudflare.com/argo-smart-routing/" target="_blank" rel="noopener noreferrer">
                                 Argo Smart Routing
                                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -433,6 +433,7 @@
                                     <line x1="10" y1="14" x2="21" y2="3"/>
                                 </svg>
                             </a>
+                            on your apps to optimize these metrics
                         </span>
                     </div>
                     <div class="argo-performance-card">
@@ -444,9 +445,9 @@
                                     </svg>
                                 </div>
                                 <div class="argo-content">
-                                    <span class="argo-label">Avg Response Time</span>
+                                    <span class="argo-label">Avg Connection Duration</span>
                                     <span class="argo-value" id="argoAvgResponse">--</span>
-                                    <span class="argo-hint">Lower is better</span>
+                                    <span class="argo-hint">Average connection lifetime</span>
                                 </div>
                             </div>
                             <div class="argo-metric">
@@ -494,7 +495,7 @@
                                 <path d="M12 16v-4"/>
                                 <path d="M12 8h.01"/>
                             </svg>
-                            <span>Argo Smart Routing optimizes traffic routing for TCP and HTTPS Spectrum applications, reducing latency by dynamically choosing the fastest network path to your origin.</span>
+                            <span>These metrics are from the Spectrum Analytics API. Enable <strong>Argo Smart Routing</strong> on your apps to optimize network paths and potentially improve these values. Note: There is no separate Argo-specific analytics for Spectrum.</span>
                         </div>
                     </div>
 
@@ -947,6 +948,7 @@
                     It is not an official Cloudflare product. Your API token is stored only in your browser's session storage 
                     and is transmitted securely to the Cloudflare API. Never share your API tokens or use tokens with 
                     write permissions in untrusted applications.
+                    <a href="https://github.com/DavidJKTofan/cf-spectrum-analytics-dashboard" target="_blank" rel="noopener noreferrer">View on GitHub</a>
                 </p>
             </div>
         </footer>

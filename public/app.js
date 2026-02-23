@@ -148,22 +148,86 @@ Chart.defaults.color = '#8b949e';
 Chart.defaults.borderColor = '#30363d';
 Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif';
 
-// Smooth animations for chart updates
-Chart.defaults.animation = {
-    duration: 400,
-    easing: 'easeOutQuart'
+// DISABLE all animations to prevent "Cannot read properties of null (reading 'dataset')" errors
+// These errors occur when Chart.js tries to animate/render while data is being updated
+// or when the chart is resizing due to tab switches
+Chart.defaults.animation = false;
+Chart.defaults.animations = {
+    x: false,
+    y: false
 };
 Chart.defaults.transitions = {
     active: {
         animation: {
-            duration: 200
+            duration: 0
+        }
+    },
+    resize: {
+        animation: {
+            duration: 0
+        }
+    },
+    show: {
+        animation: {
+            duration: 0
+        }
+    },
+    hide: {
+        animation: {
+            duration: 0
         }
     }
 };
 
-// Responsive and resize handling
+// Responsive handling - but disable resize animation
 Chart.defaults.responsive = true;
 Chart.defaults.maintainAspectRatio = false;
+Chart.defaults.resizeDelay = 0;
+
+// Disable hover animations which can also cause null reference errors
+Chart.defaults.hover = {
+    animationDuration: 0,
+    mode: 'nearest',
+    intersect: true
+};
+
+// Completely disable responsiveAnimationDuration
+Chart.defaults.responsiveAnimationDuration = 0;
+
+// Override the default legend label generator to be more defensive
+// This prevents "Cannot read properties of null (reading 'dataset')" during legend rendering
+const originalGenerateLabels = Chart.defaults.plugins.legend.labels.generateLabels;
+Chart.defaults.plugins.legend.labels.generateLabels = function(chart) {
+    try {
+        // Validate chart and datasets before generating labels
+        if (!chart || !chart.data || !chart.data.datasets) {
+            return [];
+        }
+        // Filter out any null/undefined datasets
+        const validDatasets = chart.data.datasets.filter(ds => ds != null);
+        if (validDatasets.length === 0) {
+            return [];
+        }
+        return originalGenerateLabels.call(this, chart);
+    } catch (e) {
+        console.warn('Legend label generation error (suppressed):', e.message);
+        return [];
+    }
+};
+
+// Global error handler to catch and suppress Chart.js internal errors
+// These errors are cosmetic and don't affect functionality
+window.addEventListener('error', function(event) {
+    // Check if error is from Chart.js (minified as 6.js or similar)
+    if (event.filename && (event.filename.includes('chart') || /\/\d+\.js$/.test(event.filename))) {
+        if (event.message && event.message.includes('dataset')) {
+            // Suppress Chart.js dataset errors - these are non-fatal
+            event.preventDefault();
+            console.debug('Suppressed Chart.js internal error:', event.message);
+            return true;
+        }
+    }
+});
 
 /**
  * Initialize the application
@@ -307,11 +371,21 @@ function handleDisconnect() {
     // Security: Clean up all sensitive data
     cleanupSensitiveData();
     
-    // Destroy charts
-    Object.values(state.charts).forEach(chart => {
-        if (chart) chart.destroy();
-    });
-    state.charts = { connections: null, bandwidth: null, events: null, colo: null, throughput: null, health: null, duration: null, bytesPerConn: null };
+    // Destroy all charts safely
+    destroyAllCharts();
+    
+    // Reset visited tabs so charts can be reinitialized on next connect
+    state.visitedTabs = new Set(['overview']);
+    
+    // Clear pending chart data
+    state.pendingChartData = {
+        events: null,
+        colo: null,
+        throughput: null,
+        health: null,
+        duration: null,
+        bytesPerConn: null
+    };
     
     // Clear metrics data
     state.metricsData = { summary: null, timeseries: null, current: null, events: null, colos: null, ipVersions: null };
@@ -325,6 +399,37 @@ function handleDisconnect() {
     elements.controlsBar.classList.add('hidden');
     elements.configSection.classList.remove('hidden');
     elements.refreshBtn.disabled = true;
+}
+
+/**
+ * Safely destroy all charts
+ * Wraps destruction in try-catch to prevent errors from stopping cleanup
+ */
+function destroyAllCharts() {
+    Object.keys(state.charts).forEach(name => {
+        try {
+            if (state.charts[name]) {
+                state.charts[name].destroy();
+            }
+        } catch (e) {
+            console.warn(`Error destroying ${name} chart:`, e.message);
+        }
+        state.charts[name] = null;
+    });
+}
+
+/**
+ * Safely destroy a single chart by name
+ */
+function destroyChart(name) {
+    try {
+        if (state.charts[name]) {
+            state.charts[name].destroy();
+            state.charts[name] = null;
+        }
+    } catch (e) {
+        console.warn(`Error destroying ${name} chart:`, e.message);
+    }
 }
 
 /**
@@ -366,10 +471,50 @@ const darkTooltipConfig = {
 };
 
 /**
+ * Safe tooltip callback helpers to prevent "Cannot read properties of null" errors
+ * These guard against null ctx, ctx.dataset, ctx.parsed, etc.
+ */
+const safeTooltip = {
+    // Get parsed Y value safely
+    getY: (ctx) => ctx?.parsed?.y ?? 0,
+    
+    // Get parsed value for doughnut/pie (no x/y)
+    getParsed: (ctx) => ctx?.parsed ?? 0,
+    
+    // Get dataset label safely
+    getDatasetLabel: (ctx) => ctx?.dataset?.label ?? '',
+    
+    // Get data point label safely
+    getLabel: (ctx) => ctx?.label ?? '',
+    
+    // Get dataset data array safely
+    getDatasetData: (ctx) => ctx?.dataset?.data ?? [],
+    
+    // Calculate total from dataset data
+    getDatasetTotal: (ctx) => {
+        const data = ctx?.dataset?.data;
+        if (!data || !Array.isArray(data)) return 0;
+        return data.reduce((a, b) => (a || 0) + (b || 0), 0);
+    },
+    
+    // Safe footer total calculation
+    getItemsTotal: (items) => {
+        if (!items || !Array.isArray(items) || items.length === 0) return 0;
+        return items.reduce((sum, item) => sum + (item?.parsed?.y ?? 0), 0);
+    },
+    
+    // Safe title from items array
+    getFirstLabel: (items) => {
+        if (!items || !Array.isArray(items) || items.length === 0) return '';
+        return items[0]?.label ?? '';
+    }
+};
+
+/**
  * Initialize Chart.js charts with simplified configuration
  * Charts are created lazily when their tab is first visited to avoid display:none rendering issues
  * 
- * Removed onHover callbacks that were causing Chart.js internal errors
+ * All tooltip callbacks use safeTooltip helpers to prevent null reference errors
  */
 function initCharts() {
     // Only initialize charts for the Overview tab (visible by default)
@@ -391,7 +536,12 @@ function initOverviewCharts() {
     if (state.charts.connections) return; // Already initialized
     
     // Connections over time chart
-    const connectionsCtx = document.getElementById('connectionsChart').getContext('2d');
+    const connectionsCtx = document.getElementById('connectionsChart')?.getContext('2d');
+    if (!connectionsCtx) {
+        console.error('Could not get connectionsChart canvas context');
+        return;
+    }
+    
     state.charts.connections = new Chart(connectionsCtx, {
         type: 'line',
         data: {
@@ -416,7 +566,7 @@ function initOverviewCharts() {
                 tooltip: {
                     ...darkTooltipConfig,
                     callbacks: {
-                        label: ctx => `Connections: ${formatNumber(ctx.parsed.y)}`
+                        label: ctx => `Connections: ${formatNumber(safeTooltip.getY(ctx))}`
                     }
                 }
             },
@@ -428,7 +578,12 @@ function initOverviewCharts() {
     });
     
     // Bandwidth over time chart
-    const bandwidthCtx = document.getElementById('bandwidthChart').getContext('2d');
+    const bandwidthCtx = document.getElementById('bandwidthChart')?.getContext('2d');
+    if (!bandwidthCtx) {
+        console.error('Could not get bandwidthChart canvas context');
+        return;
+    }
+    
     state.charts.bandwidth = new Chart(bandwidthCtx, {
         type: 'line',
         data: {
@@ -447,7 +602,7 @@ function initOverviewCharts() {
                 tooltip: {
                     ...darkTooltipConfig,
                     callbacks: {
-                        label: ctx => `${ctx.dataset.label}: ${formatBytes(ctx.parsed.y)}`
+                        label: ctx => `${safeTooltip.getDatasetLabel(ctx)}: ${formatBytes(safeTooltip.getY(ctx))}`
                     }
                 }
             },
@@ -470,7 +625,13 @@ function initEventsCharts() {
     hideChartOverlay('eventsChart');
     
     // Events by type chart (doughnut)
-    const eventsCtx = document.getElementById('eventsChart').getContext('2d');
+    const eventsCtx = document.getElementById('eventsChart')?.getContext('2d');
+    if (!eventsCtx) {
+        console.error('Could not get eventsChart canvas context');
+        showChartError('eventsChart', 'Failed to initialize chart');
+        return;
+    }
+    
     state.charts.events = new Chart(eventsCtx, {
         type: 'doughnut',
         data: {
@@ -491,9 +652,10 @@ function initEventsCharts() {
                     ...darkTooltipConfig,
                     callbacks: {
                         label: ctx => {
-                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                            const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
-                            return `${ctx.label}: ${formatNumber(ctx.parsed)} (${pct}%)`;
+                            const total = safeTooltip.getDatasetTotal(ctx);
+                            const value = safeTooltip.getParsed(ctx);
+                            const pct = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                            return `${safeTooltip.getLabel(ctx)}: ${formatNumber(value)} (${pct}%)`;
                         }
                     }
                 }
@@ -506,7 +668,7 @@ function initEventsCharts() {
     
     // Apply any pending data
     const pendingEvents = state.pendingChartData.events;
-    if (pendingEvents) {
+    if (pendingEvents && state.charts.events?.data?.datasets?.[0]) {
         state.charts.events.data.labels = pendingEvents.labels;
         state.charts.events.data.datasets[0].data = pendingEvents.data;
         safeChartUpdate(state.charts.events, 'none');
@@ -529,168 +691,194 @@ function initTrafficCharts() {
     hideChartOverlay('coloChart');
     
     // Throughput over time chart
-    const throughputCtx = document.getElementById('throughputChart').getContext('2d');
-    state.charts.throughput = new Chart(throughputCtx, {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [{
-                label: 'Throughput',
-                data: [],
-                borderColor: '#a371f7',
-                backgroundColor: 'rgba(163, 113, 247, 0.15)',
-                fill: true,
-                tension: 0.4,
-                pointRadius: 2,
-                pointHoverRadius: 5
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    ...darkTooltipConfig,
-                    callbacks: { label: ctx => `Throughput: ${formatBytes(ctx.parsed.y)}` }
-                }
+    const throughputCtx = document.getElementById('throughputChart')?.getContext('2d');
+    if (!throughputCtx) {
+        console.error('Could not get throughputChart canvas context');
+        showChartError('throughputChart', 'Failed to initialize chart');
+    } else {
+        state.charts.throughput = new Chart(throughputCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Throughput',
+                    data: [],
+                    borderColor: '#a371f7',
+                    backgroundColor: 'rgba(163, 113, 247, 0.15)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    pointHoverRadius: 5
+                }]
             },
-            scales: {
-                x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
-                y: { beginAtZero: true, grid: { color: '#21262d' }, ticks: { callback: v => formatBytes(v) } }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        ...darkTooltipConfig,
+                        callbacks: { label: ctx => `Throughput: ${formatBytes(safeTooltip.getY(ctx))}` }
+                    }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+                    y: { beginAtZero: true, grid: { color: '#21262d' }, ticks: { callback: v => formatBytes(v) } }
+                }
             }
-        }
-    });
+        });
+    }
     
     // Connection health chart (stacked bar)
-    const healthCtx = document.getElementById('healthChart').getContext('2d');
-    state.charts.health = new Chart(healthCtx, {
-        type: 'bar',
-        data: {
-            labels: [],
-            datasets: [
-                { label: 'Successful', data: [], backgroundColor: '#3fb950', borderRadius: 4 },
-                { label: 'Origin Errors', data: [], backgroundColor: '#f85149', borderRadius: 4 },
-                { label: 'Client Filtered', data: [], backgroundColor: '#d29922', borderRadius: 4 }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { position: 'top', align: 'end' },
-                tooltip: {
-                    ...darkTooltipConfig,
-                    callbacks: {
-                        label: ctx => `${ctx.dataset.label}: ${formatNumber(ctx.parsed.y)}`,
-                        footer: items => `Total: ${formatNumber(items.reduce((s, i) => s + i.parsed.y, 0))}`
-                    }
-                }
+    const healthCtx = document.getElementById('healthChart')?.getContext('2d');
+    if (!healthCtx) {
+        console.error('Could not get healthChart canvas context');
+        showChartError('healthChart', 'Failed to initialize chart');
+    } else {
+        state.charts.health = new Chart(healthCtx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Successful', data: [], backgroundColor: '#3fb950', borderRadius: 4 },
+                    { label: 'Origin Errors', data: [], backgroundColor: '#f85149', borderRadius: 4 },
+                    { label: 'Client Filtered', data: [], backgroundColor: '#d29922', borderRadius: 4 }
+                ]
             },
-            scales: {
-                x: { stacked: true, grid: { display: false }, ticks: { maxTicksLimit: 8 } },
-                y: { stacked: true, beginAtZero: true, grid: { color: '#21262d' }, ticks: { callback: v => formatNumber(v) } }
-            }
-        }
-    });
-    
-    // Duration distribution chart
-    const durationCtx = document.getElementById('durationChart').getContext('2d');
-    state.charts.duration = new Chart(durationCtx, {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [
-                { label: 'P50', data: [], borderColor: '#58a6ff', backgroundColor: 'transparent', tension: 0.4, pointRadius: 2, pointHoverRadius: 5 },
-                { label: 'P90', data: [], borderColor: '#d29922', backgroundColor: 'transparent', tension: 0.4, pointRadius: 2, pointHoverRadius: 5 },
-                { label: 'P99', data: [], borderColor: '#f85149', backgroundColor: 'transparent', tension: 0.4, pointRadius: 2, pointHoverRadius: 5 }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { position: 'top', align: 'end' },
-                tooltip: {
-                    ...darkTooltipConfig,
-                    callbacks: { label: ctx => `${ctx.dataset.label}: ${formatDuration(ctx.parsed.y)}` }
-                }
-            },
-            scales: {
-                x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
-                y: { beginAtZero: true, grid: { color: '#21262d' }, ticks: { callback: v => formatDuration(v) } }
-            }
-        }
-    });
-    
-    // Bytes per connection chart
-    const bytesPerConnCtx = document.getElementById('bytesPerConnChart').getContext('2d');
-    state.charts.bytesPerConn = new Chart(bytesPerConnCtx, {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [
-                { label: 'Avg Ingress/Conn', data: [], borderColor: '#3fb950', backgroundColor: 'rgba(63, 185, 80, 0.1)', fill: true, tension: 0.4, pointRadius: 2, pointHoverRadius: 5 },
-                { label: 'Avg Egress/Conn', data: [], borderColor: '#58a6ff', backgroundColor: 'rgba(88, 166, 255, 0.1)', fill: true, tension: 0.4, pointRadius: 2, pointHoverRadius: 5 }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { position: 'top', align: 'end' },
-                tooltip: {
-                    ...darkTooltipConfig,
-                    callbacks: { label: ctx => `${ctx.dataset.label}: ${formatBytes(ctx.parsed.y)}` }
-                }
-            },
-            scales: {
-                x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
-                y: { beginAtZero: true, grid: { color: '#21262d' }, ticks: { callback: v => formatBytes(v) } }
-            }
-        }
-    });
-    
-    // Traffic by colo chart (bar)
-    const coloCtx = document.getElementById('coloChart').getContext('2d');
-    state.charts.colo = new Chart(coloCtx, {
-        type: 'bar',
-        data: {
-            labels: [],
-            datasets: [{
-                label: 'Connections',
-                data: [],
-                backgroundColor: '#f6821f',
-                borderRadius: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    ...darkTooltipConfig,
-                    callbacks: {
-                        title: items => `Edge: ${items[0].label}`,
-                        label: ctx => {
-                            const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                            const pct = total > 0 ? ((ctx.parsed.y / total) * 100).toFixed(1) : 0;
-                            return `Connections: ${formatNumber(ctx.parsed.y)} (${pct}%)`;
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { position: 'top', align: 'end' },
+                    tooltip: {
+                        ...darkTooltipConfig,
+                        callbacks: {
+                            label: ctx => `${safeTooltip.getDatasetLabel(ctx)}: ${formatNumber(safeTooltip.getY(ctx))}`,
+                            footer: items => `Total: ${formatNumber(safeTooltip.getItemsTotal(items))}`
                         }
                     }
+                },
+                scales: {
+                    x: { stacked: true, grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+                    y: { stacked: true, beginAtZero: true, grid: { color: '#21262d' }, ticks: { callback: v => formatNumber(v) } }
                 }
-            },
-            scales: {
-                x: { grid: { display: false }, ticks: { color: '#8b949e' } },
-                y: { beginAtZero: true, grid: { color: '#21262d' }, ticks: { color: '#8b949e', callback: v => formatNumber(v) } }
             }
-        }
-    });
+        });
+    }
+    
+    // Duration distribution chart
+    const durationCtx = document.getElementById('durationChart')?.getContext('2d');
+    if (!durationCtx) {
+        console.error('Could not get durationChart canvas context');
+        showChartError('durationChart', 'Failed to initialize chart');
+    } else {
+        state.charts.duration = new Chart(durationCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'P50', data: [], borderColor: '#58a6ff', backgroundColor: 'transparent', tension: 0.4, pointRadius: 2, pointHoverRadius: 5 },
+                    { label: 'P90', data: [], borderColor: '#d29922', backgroundColor: 'transparent', tension: 0.4, pointRadius: 2, pointHoverRadius: 5 },
+                    { label: 'P99', data: [], borderColor: '#f85149', backgroundColor: 'transparent', tension: 0.4, pointRadius: 2, pointHoverRadius: 5 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { position: 'top', align: 'end' },
+                    tooltip: {
+                        ...darkTooltipConfig,
+                        callbacks: { label: ctx => `${safeTooltip.getDatasetLabel(ctx)}: ${formatDuration(safeTooltip.getY(ctx))}` }
+                    }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+                    y: { beginAtZero: true, grid: { color: '#21262d' }, ticks: { callback: v => formatDuration(v) } }
+                }
+            }
+        });
+    }
+    
+    // Bytes per connection chart
+    const bytesPerConnCtx = document.getElementById('bytesPerConnChart')?.getContext('2d');
+    if (!bytesPerConnCtx) {
+        console.error('Could not get bytesPerConnChart canvas context');
+        showChartError('bytesPerConnChart', 'Failed to initialize chart');
+    } else {
+        state.charts.bytesPerConn = new Chart(bytesPerConnCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Avg Ingress/Conn', data: [], borderColor: '#3fb950', backgroundColor: 'rgba(63, 185, 80, 0.1)', fill: true, tension: 0.4, pointRadius: 2, pointHoverRadius: 5 },
+                    { label: 'Avg Egress/Conn', data: [], borderColor: '#58a6ff', backgroundColor: 'rgba(88, 166, 255, 0.1)', fill: true, tension: 0.4, pointRadius: 2, pointHoverRadius: 5 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { position: 'top', align: 'end' },
+                    tooltip: {
+                        ...darkTooltipConfig,
+                        callbacks: { label: ctx => `${safeTooltip.getDatasetLabel(ctx)}: ${formatBytes(safeTooltip.getY(ctx))}` }
+                    }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+                    y: { beginAtZero: true, grid: { color: '#21262d' }, ticks: { callback: v => formatBytes(v) } }
+                }
+            }
+        });
+    }
+    
+    // Traffic by colo chart (bar)
+    const coloCtx = document.getElementById('coloChart')?.getContext('2d');
+    if (!coloCtx) {
+        console.error('Could not get coloChart canvas context');
+        showChartError('coloChart', 'Failed to initialize chart');
+    } else {
+        state.charts.colo = new Chart(coloCtx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Connections',
+                    data: [],
+                    backgroundColor: '#f6821f',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        ...darkTooltipConfig,
+                        callbacks: {
+                            title: items => `Edge: ${safeTooltip.getFirstLabel(items)}`,
+                            label: ctx => {
+                                const total = safeTooltip.getDatasetTotal(ctx);
+                                const value = safeTooltip.getY(ctx);
+                                const pct = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                return `Connections: ${formatNumber(value)} (${pct}%)`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#8b949e' } },
+                    y: { beginAtZero: true, grid: { color: '#21262d' }, ticks: { color: '#8b949e', callback: v => formatNumber(v) } }
+                }
+            }
+        });
+    }
     
     console.log('Traffic charts initialized');
     
@@ -700,61 +888,68 @@ function initTrafficCharts() {
 
 /**
  * Apply pending data to traffic charts after initialization
+ * All dataset access is guarded to prevent null reference errors
  */
 function applyPendingTrafficChartData() {
     // Apply pending colo data
     const pendingColo = state.pendingChartData.colo;
-    if (pendingColo && state.charts.colo) {
-        state.charts.colo.data.labels = pendingColo.labels;
-        state.charts.colo.data.datasets[0].data = pendingColo.data;
+    if (pendingColo && state.charts.colo?.data?.datasets?.[0]) {
+        state.charts.colo.data.labels = pendingColo.labels || [];
+        state.charts.colo.data.datasets[0].data = pendingColo.data || [];
         safeChartUpdate(state.charts.colo, 'none');
         console.log('Applied pending colo chart data');
     }
     
     // Apply pending throughput data
     const pendingThroughput = state.pendingChartData.throughput;
-    if (pendingThroughput && state.charts.throughput) {
-        state.charts.throughput.data.labels = pendingThroughput.labels;
-        state.charts.throughput.data.datasets[0].data = pendingThroughput.data;
+    if (pendingThroughput && state.charts.throughput?.data?.datasets?.[0]) {
+        state.charts.throughput.data.labels = pendingThroughput.labels || [];
+        state.charts.throughput.data.datasets[0].data = pendingThroughput.data || [];
         safeChartUpdate(state.charts.throughput, 'none');
         console.log('Applied pending throughput chart data');
     }
     
     // Apply pending health data
     const pendingHealth = state.pendingChartData.health;
-    if (pendingHealth && state.charts.health) {
-        state.charts.health.data.labels = pendingHealth.labels;
-        pendingHealth.datasets.forEach((data, i) => {
-            if (state.charts.health.data.datasets[i]) {
-                state.charts.health.data.datasets[i].data = data;
-            }
-        });
+    if (pendingHealth && state.charts.health?.data?.datasets) {
+        state.charts.health.data.labels = pendingHealth.labels || [];
+        if (Array.isArray(pendingHealth.datasets)) {
+            pendingHealth.datasets.forEach((data, i) => {
+                if (state.charts.health.data.datasets[i]) {
+                    state.charts.health.data.datasets[i].data = data || [];
+                }
+            });
+        }
         safeChartUpdate(state.charts.health, 'none');
         console.log('Applied pending health chart data');
     }
     
     // Apply pending duration data
     const pendingDuration = state.pendingChartData.duration;
-    if (pendingDuration && state.charts.duration) {
-        state.charts.duration.data.labels = pendingDuration.labels;
-        pendingDuration.datasets.forEach((data, i) => {
-            if (state.charts.duration.data.datasets[i]) {
-                state.charts.duration.data.datasets[i].data = data;
-            }
-        });
+    if (pendingDuration && state.charts.duration?.data?.datasets) {
+        state.charts.duration.data.labels = pendingDuration.labels || [];
+        if (Array.isArray(pendingDuration.datasets)) {
+            pendingDuration.datasets.forEach((data, i) => {
+                if (state.charts.duration.data.datasets[i]) {
+                    state.charts.duration.data.datasets[i].data = data || [];
+                }
+            });
+        }
         safeChartUpdate(state.charts.duration, 'none');
         console.log('Applied pending duration chart data');
     }
     
     // Apply pending bytesPerConn data
     const pendingBytesPerConn = state.pendingChartData.bytesPerConn;
-    if (pendingBytesPerConn && state.charts.bytesPerConn) {
-        state.charts.bytesPerConn.data.labels = pendingBytesPerConn.labels;
-        pendingBytesPerConn.datasets.forEach((data, i) => {
-            if (state.charts.bytesPerConn.data.datasets[i]) {
-                state.charts.bytesPerConn.data.datasets[i].data = data;
-            }
-        });
+    if (pendingBytesPerConn && state.charts.bytesPerConn?.data?.datasets) {
+        state.charts.bytesPerConn.data.labels = pendingBytesPerConn.labels || [];
+        if (Array.isArray(pendingBytesPerConn.datasets)) {
+            pendingBytesPerConn.datasets.forEach((data, i) => {
+                if (state.charts.bytesPerConn.data.datasets[i]) {
+                    state.charts.bytesPerConn.data.datasets[i].data = data || [];
+                }
+            });
+        }
         safeChartUpdate(state.charts.bytesPerConn, 'none');
         console.log('Applied pending bytesPerConn chart data');
     }
@@ -945,8 +1140,11 @@ async function fetchDurationByTime(since, until, step) {
 }
 
 /**
- * Update Argo Smart Routing performance metrics
- * These metrics help visualize network optimization performance
+ * Update network performance metrics section
+ * NOTE: These are general Spectrum Analytics metrics, NOT Argo-specific data.
+ * There is no separate "Argo Analytics API" for Spectrum applications.
+ * These metrics can be used as proxies to assess overall performance,
+ * and users can compare before/after enabling Argo on their apps.
  */
 function updateArgoMetrics(summaryData) {
     if (!summaryData || !summaryData.result) {
@@ -1037,14 +1235,14 @@ function updateAdditionalCharts(timeseriesData, durationTimeseriesData) {
             datasets: [bytesPerConnIngress, bytesPerConnEgress]
         };
         
-        // If chart exists, update it directly
-        if (state.charts.throughput) {
+        // If chart exists and has valid structure, update it directly
+        if (state.charts.throughput?.data?.datasets?.[0]) {
             state.charts.throughput.data.labels = labels;
             state.charts.throughput.data.datasets[0].data = throughput;
             safeChartUpdate(state.charts.throughput);
         }
         
-        if (state.charts.bytesPerConn) {
+        if (state.charts.bytesPerConn?.data?.datasets?.[0] && state.charts.bytesPerConn?.data?.datasets?.[1]) {
             state.charts.bytesPerConn.data.labels = labels;
             state.charts.bytesPerConn.data.datasets[0].data = bytesPerConnIngress;
             state.charts.bytesPerConn.data.datasets[1].data = bytesPerConnEgress;
@@ -1076,8 +1274,10 @@ function updateAdditionalCharts(timeseriesData, durationTimeseriesData) {
                 datasets: [p50Data, p90Data, p99Data]
             };
             
-            // If chart exists, update it directly
-            if (state.charts.duration) {
+            // If chart exists and has valid structure, update it directly
+            if (state.charts.duration?.data?.datasets?.[0] && 
+                state.charts.duration?.data?.datasets?.[1] && 
+                state.charts.duration?.data?.datasets?.[2]) {
                 state.charts.duration.data.labels = durLabels;
                 state.charts.duration.data.datasets[0].data = p50Data;
                 state.charts.duration.data.datasets[1].data = p90Data;
@@ -1149,8 +1349,10 @@ async function updateHealthChart() {
                 datasets: [successData, errorData, filteredData]
             };
             
-            // If chart exists, update it directly
-            if (state.charts.health) {
+            // If chart exists and has valid structure, update it directly
+            if (state.charts.health?.data?.datasets?.[0] && 
+                state.charts.health?.data?.datasets?.[1] && 
+                state.charts.health?.data?.datasets?.[2]) {
                 state.charts.health.data.labels = labels;
                 state.charts.health.data.datasets[0].data = successData;
                 state.charts.health.data.datasets[1].data = errorData;
@@ -1566,16 +1768,20 @@ function updateTimeseriesCharts(data) {
             ? metricsData[egressIndex] 
             : [];
         
-        // Update connections chart with animation
-        state.charts.connections.data.labels = labels;
-        state.charts.connections.data.datasets[0].data = connections;
-        safeChartUpdate(state.charts.connections);
+        // Update connections chart with animation (guard dataset access)
+        if (state.charts.connections?.data?.datasets?.[0]) {
+            state.charts.connections.data.labels = labels;
+            state.charts.connections.data.datasets[0].data = connections;
+            safeChartUpdate(state.charts.connections);
+        }
         
-        // Update bandwidth chart with animation
-        state.charts.bandwidth.data.labels = labels;
-        state.charts.bandwidth.data.datasets[0].data = ingress;
-        state.charts.bandwidth.data.datasets[1].data = egress;
-        safeChartUpdate(state.charts.bandwidth);
+        // Update bandwidth chart with animation (guard dataset access)
+        if (state.charts.bandwidth?.data?.datasets?.[0] && state.charts.bandwidth?.data?.datasets?.[1]) {
+            state.charts.bandwidth.data.labels = labels;
+            state.charts.bandwidth.data.datasets[0].data = ingress;
+            state.charts.bandwidth.data.datasets[1].data = egress;
+            safeChartUpdate(state.charts.bandwidth);
+        }
         return;
     }
     
@@ -1630,16 +1836,20 @@ function updateTimeseriesCharts(data) {
         return row.bytesEgress || 0;
     });
     
-    // Update connections chart with animation
-    state.charts.connections.data.labels = labels;
-    state.charts.connections.data.datasets[0].data = connections;
-    safeChartUpdate(state.charts.connections);
+    // Update connections chart with animation (guard dataset access)
+    if (state.charts.connections?.data?.datasets?.[0]) {
+        state.charts.connections.data.labels = labels;
+        state.charts.connections.data.datasets[0].data = connections;
+        safeChartUpdate(state.charts.connections);
+    }
     
-    // Update bandwidth chart with animation
-    state.charts.bandwidth.data.labels = labels;
-    state.charts.bandwidth.data.datasets[0].data = ingress;
-    state.charts.bandwidth.data.datasets[1].data = egress;
-    safeChartUpdate(state.charts.bandwidth);
+    // Update bandwidth chart with animation (guard dataset access)
+    if (state.charts.bandwidth?.data?.datasets?.[0] && state.charts.bandwidth?.data?.datasets?.[1]) {
+        state.charts.bandwidth.data.labels = labels;
+        state.charts.bandwidth.data.datasets[0].data = ingress;
+        state.charts.bandwidth.data.datasets[1].data = egress;
+        safeChartUpdate(state.charts.bandwidth);
+    }
 }
 
 /**
@@ -1666,14 +1876,31 @@ function getMetricValue(row, metricIndex = 0) {
 
 /**
  * Safely update a chart, catching any Chart.js internal errors
+ * Also validates chart is in a valid state before updating
  */
 function safeChartUpdate(chart, mode = 'none') {
-    if (!chart) return;
+    if (!chart) return false;
+    
+    // Check if chart is in a valid state
+    if (!chart.canvas || !chart.ctx || !chart.data) {
+        console.warn('Chart update skipped - chart in invalid state');
+        return false;
+    }
+    
     try {
         chart.update(mode);
+        return true;
     } catch (e) {
         console.warn('Chart update error (non-fatal):', e.message);
+        return false;
     }
+}
+
+/**
+ * Check if a chart instance is valid and can be used
+ */
+function isChartValid(chart) {
+    return chart && chart.canvas && chart.ctx && chart.data && chart.data.datasets;
 }
 
 /**
@@ -1781,11 +2008,12 @@ function hideAllChartsLoading() {
  * Apply chart data and handle hidden tab scenario
  * If the chart doesn't exist yet (tab not visited), store data for later.
  * If the chart's tab is hidden, store data for later; otherwise update immediately
+ * All dataset access is guarded to prevent null reference errors
  */
 function applyChartData(chartName, labels, data, tabId) {
     try {
         // Always store the data for potential re-application on tab switch or chart init
-        state.pendingChartData[chartName] = { labels, data };
+        state.pendingChartData[chartName] = { labels: labels || [], data: data || [] };
         
         const chart = state.charts[chartName];
         
@@ -1795,14 +2023,20 @@ function applyChartData(chartName, labels, data, tabId) {
             return;
         }
         
+        // Guard against missing chart data structure
+        if (!chart.data || !chart.data.datasets || !chart.data.datasets[0]) {
+            console.warn(`${chartName} chart data structure is invalid`);
+            return;
+        }
+        
         // Check if the tab is currently visible
         const isTabVisible = uiState.activeTab === tabId;
         
         console.log(`Applying ${chartName} chart data:`, { labels, data, isTabVisible, activeTab: uiState.activeTab });
         
         // Update chart data
-        chart.data.labels = labels;
-        chart.data.datasets[0].data = data;
+        chart.data.labels = labels || [];
+        chart.data.datasets[0].data = data || [];
         
         if (isTabVisible) {
             // Tab is visible - update immediately (skip animation to avoid race conditions)
@@ -2418,6 +2652,7 @@ function resizeAllCharts() {
  * Chart.js doesn't render correctly when canvas has display:none.
  * We need to force a complete re-render after the tab becomes visible.
  * Also re-applies any pending chart data that was stored while the tab was hidden.
+ * All dataset access is guarded to prevent null reference errors
  */
 function resizeChartsInTab(tabId) {
     const tabCharts = {
@@ -2429,27 +2664,48 @@ function resizeChartsInTab(tabId) {
     const chartNames = tabCharts[tabId] || [];
     chartNames.forEach(name => {
         const chart = state.charts[name];
-        if (chart && chart.canvas) {
-            try {
-                // Check if there's pending data for this chart that needs to be applied
-                const pendingData = state.pendingChartData[name];
-                if (pendingData) {
-                    console.log(`Applying pending data for ${name} chart on tab switch:`, pendingData);
-                    chart.data.labels = pendingData.labels;
-                    chart.data.datasets[0].data = pendingData.data;
+        
+        // Skip if chart doesn't exist or is invalid
+        if (!isChartValid(chart)) {
+            console.log(`Skipping ${name} chart - not valid or not initialized`);
+            return;
+        }
+        
+        try {
+            // Check if there's pending data for this chart that needs to be applied
+            const pendingData = state.pendingChartData[name];
+            if (pendingData) {
+                console.log(`Applying pending data for ${name} chart on tab switch:`, pendingData);
+                chart.data.labels = pendingData.labels || [];
+                
+                // Handle multi-dataset charts (health, duration, bytesPerConn, bandwidth)
+                // These have pendingData.datasets array instead of pendingData.data
+                if (Array.isArray(pendingData.datasets)) {
+                    pendingData.datasets.forEach((dataArray, idx) => {
+                        if (chart.data.datasets[idx]) {
+                            chart.data.datasets[idx].data = dataArray || [];
+                        }
+                    });
+                } else if (pendingData.data && chart.data.datasets[0]) {
+                    // Single dataset charts (connections, throughput, events, colo)
+                    chart.data.datasets[0].data = pendingData.data || [];
                 }
-                
-                // After display:none, Chart.js needs a complete resize
-                // First resize to trigger dimension recalculation
-                chart.resize();
-                
-                // Force a complete re-render with the current data (skip animation)
-                safeChartUpdate(chart, 'none');
-                
-                console.log(`${name} chart resized and updated on tab switch to ${tabId}`);
-            } catch (e) {
-                console.warn(`Error resizing ${name} chart:`, e.message);
             }
+            
+            // After display:none, Chart.js needs a complete resize
+            // First resize to trigger dimension recalculation
+            try {
+                chart.resize();
+            } catch (resizeErr) {
+                console.warn(`Error resizing ${name} chart:`, resizeErr.message);
+            }
+            
+            // Force a complete re-render with the current data (skip animation)
+            if (safeChartUpdate(chart, 'none')) {
+                console.log(`${name} chart resized and updated on tab switch to ${tabId}`);
+            }
+        } catch (e) {
+            console.warn(`Error handling ${name} chart on tab switch:`, e.message);
         }
     });
 }
