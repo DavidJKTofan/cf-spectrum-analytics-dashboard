@@ -163,6 +163,8 @@ Exports a JSON file with the same data in a structured format suitable for progr
 
 This is not an official Cloudflare product. It is provided as-is without any warranty or support. Use at your own risk.
 
+It is likely that the analytics do not properly display all data.
+
 ### Important Security Notes
 
 1. **API Tokens**: Never use API tokens with write permissions in this or any untrusted application
