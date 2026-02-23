@@ -6,21 +6,6 @@ A visualization dashboard for Cloudflare Spectrum analytics data, built on Cloud
 
 This dashboard allows users to visualize their Spectrum analytics data by providing a read-only API token and Zone ID. The application fetches data from the Cloudflare Spectrum Analytics API and presents it in an intuitive, real-time dashboard.
 
-### Features
-
-- **Real-time Analytics**: View connections, bandwidth, and duration metrics
-- **Argo Smart Routing Metrics**: Network optimization insights including response time, throughput, success rate, and P99 latency powered by [Argo Smart Routing](https://developers.cloudflare.com/argo-smart-routing/)
-- **Duration Percentiles**: P50, P90, P99 latency analysis for connection performance
-- **Event Type Breakdown**: Track connect, disconnect, progress, originError, and clientFiltered events
-- **Traffic by Colo**: Top 10 edge locations by connection count
-- **IP Version Distribution**: IPv4 vs IPv6 traffic breakdown
-- **TCP/HTTPS App Visibility**: Additional charts for throughput, connection health, duration distribution, and bytes per connection
-- **Data Export**: Export all metrics to CSV or JSON format for further analysis
-- **Events Log**: Recent Spectrum events with timestamps and details
-- **Application Filtering**: Filter by specific Spectrum application
-- **Spectrum Apps Configuration**: View all app configurations (hostnames, protocols, origins, TLS, Argo, Edge IPs) when Zone Settings Read permission is available
-- **Auto-refresh**: Data updates every 30 seconds
-
 ## Project Structure
 
 ```
@@ -42,7 +27,6 @@ cf-spectrum-analytics-dashboard/
 
 ## Requirements
 
-- **Node.js**: 18.x or later
 - **Cloudflare Account**: With a zone that has Spectrum enabled
 - **API Token**: With `Analytics Read` permission (required)
   - **Optional**: Add `Zone Settings Read` permission to see Spectrum application configurations (hostnames, protocols, origins, TLS, Argo Smart Routing)
@@ -66,41 +50,9 @@ For more information, see [Cloudflare API Token Documentation](https://developer
 | Analytics Read | Yes | Access Spectrum analytics data (connections, bandwidth, events) |
 | Zone Settings Read | No | Show Spectrum application configurations (hostnames, protocols, origins, TLS, Argo Smart Routing, Edge IPs, IP Firewall) |
 
-## Installation
+## Installation, Development, & Deployment
 
-```bash
-# Clone the repository
-git clone <repository-url>
-cd cf-spectrum-analytics-dashboard
-
-# Install dependencies
-npm install
-
-# Generate TypeScript types for Worker bindings
-npm run cf-typegen
-```
-
-## Development
-
-```bash
-# Start local development server
-npm run dev
-
-# Run tests
-npm test
-
-# Type check
-npx tsc --noEmit
-```
-
-The development server runs at `http://localhost:8787` (or `8788` if port is in use).
-
-## Deployment
-
-```bash
-# Deploy to Cloudflare Workers
-npm run deploy
-```
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/DavidJKTofan/cf-spectrum-analytics-dashboard)
 
 ## API Endpoints
 
@@ -115,8 +67,6 @@ The Worker provides the following API proxy endpoints:
 | `GET /api/spectrum/apps` | List Spectrum apps (requires Spectrum Read permission) |
 
 ## Security Features
-
-This application implements enterprise-grade security practices:
 
 ### API Token Handling
 - **Memory-Only Storage**: API tokens are stored only in JavaScript memory, never in sessionStorage or localStorage
@@ -268,7 +218,7 @@ Since there's no direct Argo-vs-non-Argo comparison API for Spectrum, you need t
 - Cross-region traffic patterns
 - Long-lived persistent connections (gaming, real-time apps)
 
-**Note on HTTP vs Spectrum Analytics**: For HTTP/HTTPS traffic proxied through standard Cloudflare (not Spectrum), Cloudflare provides dedicated [Argo Analytics](https://developers.cloudflare.com/argo-smart-routing/analytics/) that directly measures Time-to-First-Byte (TTFB) improvements with and without Argo. This HTTP-specific comparison analytics is **not available** for TCP/UDP Spectrum applications.
+> **Note on HTTP vs Spectrum Analytics**: For HTTP/HTTPS traffic proxied through standard Cloudflare (not Spectrum), Cloudflare provides dedicated [Argo Analytics](https://developers.cloudflare.com/argo-smart-routing/analytics/) that directly measures Time-to-First-Byte (TTFB) improvements with and without Argo. This HTTP-specific comparison analytics is **not available** for TCP/UDP Spectrum applications.
 
 #### Argo Configuration in App Details
 
