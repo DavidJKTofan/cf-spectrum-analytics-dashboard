@@ -153,6 +153,7 @@ Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", "No
 // or when the chart is resizing due to tab switches
 Chart.defaults.animation = false;
 Chart.defaults.animations = {
+    colors: false,
     x: false,
     y: false
 };
