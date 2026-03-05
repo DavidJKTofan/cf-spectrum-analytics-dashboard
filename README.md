@@ -6,6 +6,8 @@ A visualization dashboard for Cloudflare Spectrum analytics data, built on Cloud
 
 This dashboard allows users to visualize their Spectrum analytics data by providing a read-only API token and Zone ID. The application fetches data from the Cloudflare Spectrum Analytics API and presents it in an intuitive, real-time dashboard.
 
+![Spectrum Analytics Sample Screenshot Example](spectrum-analytics-sample.png)
+
 ## Project Structure
 
 ```
